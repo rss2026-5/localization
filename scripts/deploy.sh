@@ -19,6 +19,10 @@ LOCAL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "==> Deploying to ${ROBOT}"
 echo ""
 
+# Ensure remote directory structure exists
+echo "  Creating remote directories..."
+ssh "${ROBOT}" "mkdir -p ${REMOTE_WS}/localization/localization ${REMOTE_WS}/localization/launch ${REMOTE_WS}/localization/maps ${REMOTE_WS}/localization/scripts ${REMOTE_WS}/localization/resource"
+
 # localization ROS2 package (Python nodes + params + launch files)
 echo "  localization/"
 scp -r "${LOCAL_ROOT}/localization/" "${ROBOT}:${REMOTE_WS}/localization/localization/"
@@ -34,6 +38,13 @@ scp -r "${LOCAL_ROOT}/maps/" "${ROBOT}:${REMOTE_WS}/localization/maps/"
 # helper scripts (record_test.sh, etc.)
 echo "  scripts/"
 scp -r "${LOCAL_ROOT}/scripts/" "${ROBOT}:${REMOTE_WS}/localization/scripts/"
+
+# build files (needed for colcon build)
+echo "  build files (setup.py, package.xml, setup.cfg, resource/)"
+scp "${LOCAL_ROOT}/setup.py" "${ROBOT}:${REMOTE_WS}/localization/"
+scp "${LOCAL_ROOT}/package.xml" "${ROBOT}:${REMOTE_WS}/localization/"
+scp "${LOCAL_ROOT}/setup.cfg" "${ROBOT}:${REMOTE_WS}/localization/"
+scp -r "${LOCAL_ROOT}/resource/" "${ROBOT}:${REMOTE_WS}/localization/resource/"
 
 echo ""
 echo "==> Files deployed. Now on the robot (inside Docker):"
