@@ -9,7 +9,9 @@ from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped
 from sensor_msgs.msg import LaserScan
 
 import tf2_ros
-from tf_transformations import quaternion_from_euler, euler_from_quaternion
+# from tf_transformations import quaternion_from_euler, euler_from_quaternion
+import scipy.spatial.transform as sp
+from scipy.spatial.transform import Rotation as R
 
 from geometry_msgs.msg import PoseArray, Pose
 
@@ -99,7 +101,7 @@ class ParticleFilter(Node):
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
         q = msg.pose.pose.orientation
-        _, _, theta = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        _, _, theta = R.from_quat([q.x, q.y, q.z, q.w]).as_euler("xyz")
 
         with self.lock:
             self.particles[:, 0] = np.random.normal(x,     0.5,  self.num_particles)
@@ -205,7 +207,7 @@ class ParticleFilter(Node):
         odom_msg.pose.pose.position.y = mean_y
         odom_msg.pose.pose.position.z = 0.0
 
-        q = quaternion_from_euler(0, 0, mean_theta)
+        q = R.from_euler("xyz", (0, 0, mean_theta)).as_quat()
         odom_msg.pose.pose.orientation.x = q[0]
         odom_msg.pose.pose.orientation.y = q[1]
         odom_msg.pose.pose.orientation.z = q[2]
@@ -222,7 +224,7 @@ class ParticleFilter(Node):
                 pose = Pose()
                 pose.position.x = float(p[0])
                 pose.position.y = float(p[1])
-                q = quaternion_from_euler(0, 0, float(p[2]))
+                q = R.from_euler("xyz", (0, 0, float(p[2]))).as_quat()
                 pose.orientation.x = q[0]
                 pose.orientation.y = q[1]
                 pose.orientation.z = q[2]
