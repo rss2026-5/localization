@@ -1,103 +1,138 @@
-# Lab 5 Operations Guide
+# Lab 5 — Real Car Testing
 
-## Prerequisites
-- SSH access to the car (`ssh racecar@192.168.1.<CAR_NUMBER>`)
-- Docker running on the car (`sudo docker start racecar` if needed)
-- Teleop already running on the car (handles joystick and deadman switch)
+**The car must be in the Stata basement. The particle filter uses the Stata basement map.**
 
 ---
 
-## 1. Deploy Code to the Car
+## One-Time Setup (skip if already done)
 
-From your laptop, run:
+From the car **host** (SSH in, but NOT inside Docker):
+
 ```bash
-./scripts/deploy.sh          # defaults to car 102
-./scripts/deploy.sh 104      # specify car number
+ssh racecar@192.168.1.102
+sudo docker pull staffmitrss/racecar2026
+sudo docker run -it --name racecar --privileged --net=host \
+    -v /dev:/dev \
+    -v /home/racecar/racecar_ws:/root/racecar_ws \
+    staffmitrss/racecar2026 bash
+exit
 ```
 
-Then SSH into the car, connect to Docker, and build:
+---
+
+## Deploy (from your laptop)
+
+```bash
+cd ~/Documents/GitHub/localization
+./scripts/deploy.sh
+```
+
+---
+
+## Build (on the car, inside Docker)
+
 ```bash
 ssh racecar@192.168.1.102
 sudo docker exec -it racecar bash
-cd ~/racecar_ws && colcon build --symlink-install && source install/setup.bash
+export SIM_WS=/root/sim_ws
+cd ~/racecar_ws && colcon build --packages-select localization --symlink-install && source install/setup.bash
 ```
+
+Wait for `Finished <<< localization`.
 
 ---
 
-## 2. Run the Particle Filter (Terminal 1)
+## Run
+
+Open **5 terminals** on your laptop. Each one SSHs into the car and enters Docker.
+
+### Tab 1 — Foxglove bridge
 
 ```bash
+ssh -L 8765:localhost:8765 racecar@192.168.1.102
+sudo docker exec -it racecar bash
+ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
+```
+
+### Tab 2 — Particle filter
+
+```bash
+ssh racecar@192.168.1.102
+sudo docker exec -it racecar bash
+export SIM_WS=/root/sim_ws
+cd ~/racecar_ws && source install/setup.bash
 ros2 launch localization localize_real.launch.xml
 ```
 
-This starts the Stata basement map server and the particle filter. The estimated pose is published on `/pf/pose/odom` and the particle cloud on `/pf/particles`.
+Wait for `=============+READY+=============` and `Map initialized`.
 
-**Drive the car with the joystick — hold RB as the deadman switch.**
+### Tab 3 — Rosbag recording
+
+```bash
+ssh racecar@192.168.1.102
+sudo docker exec -it racecar bash
+source ~/racecar_ws/install/setup.bash
+cd ~/racecar_ws/src/localization
+./scripts/record_test.sh convergence_run_1
+```
+
+### Tab 4 — Hz monitor
+
+```bash
+ssh racecar@192.168.1.102
+sudo docker exec -it racecar bash
+source ~/racecar_ws/install/setup.bash
+ros2 topic hz /pf/pose/odom
+```
+
+### Tab 5 — Teleop
+
+Start teleop per your team's usual process. Verify the car responds to the joystick (hold RB + left stick).
 
 ---
 
-## 3. Record a Rosbag (Terminal 2)
+## Foxglove
 
-Start recording before you set the initial pose so the bag captures everything:
+1. Open [app.foxglove.dev](https://app.foxglove.dev)
+2. **Open Connection** > `ws://localhost:8765` > **Open**
+3. Add a **3D panel**, enable `/map`, `/pf/particles`, `/scan`
+4. Scroll down to **Publish > 2D pose estimate**
+
+---
+
+## Test
+
+1. **Start screen recording** (QuickTime or OBS)
+2. In Foxglove, **click and drag** on the map where the car physically is to set the initial pose
+3. **Hold RB** and drive slowly with the joystick
+4. Watch particles converge. Laser scan should align with walls on the map
+5. Hz monitor (Tab 4) should read **>20 Hz** — screenshot it
+6. Drive a loop back to start (~30-60 seconds)
+7. **Ctrl-C** in Tab 3 to stop recording
+8. Stop screen recording
+
+For more runs, start a new recording in Tab 3:
+
 ```bash
-./src/localization/scripts/record_test.sh convergence_run_1
+./scripts/record_test.sh convergence_run_2
+./scripts/record_test.sh convergence_run_3
 ```
 
-This records `/vesc/odom`, `/scan`, `/pf/pose/odom`, `/pf/particles`, `/map`, `/initialpose`, `/tf`, and `/tf_static` to `~/rosbags/convergence_run_1/`.
+---
 
-Press **Ctrl-C** to stop recording when the run is done.
+## Copy Bags to Laptop
 
-Suggested runs to collect:
-1. `convergence_run_1` — straight corridor, initialize pose, drive a loop
-2. `convergence_run_2` — sharper turns, different starting location
-3. `convergence_run_3` — longer drive with varied speed
+From your laptop:
 
-You can replay bags later to re-tune parameters without driving again:
 ```bash
-ros2 bag play ~/rosbags/convergence_run_1
-```
-
-To copy bags back to your laptop:
-```bash
+cd ~/Documents/GitHub/localization
 scp -r racecar@192.168.1.102:~/rosbags/ ./bag_files/
 ```
 
 ---
 
-## 4. Monitor Hz (Terminal 3)
+## What to Walk Away With
 
-```bash
-ros2 topic hz /pf/pose/odom
-```
-
-This should read **>20 Hz** for real-time performance. Record the number for the report.
-
----
-
-## 5. Set the Initial Pose
-
-The particle filter starts with all particles at (0, 0) and will not converge until initialized.
-
-**In Foxglove** (`ws://192.168.1.<CAR>:8765`):
-1. Open a 3D panel and add `/pf/particles` (type: `PoseArray`) and `/map`
-2. Use **Publish → Pose Estimate**, click and drag on the map to set the car's starting position and heading
-3. Drive around — the particle cloud will converge to the correct location
-
----
-
-## 6. Verify Localization is Working
-
-- **Good**: tight particle cluster that follows the car as it moves
-- **Bad**: particles spread all over the map — re-initialize the pose and try again
-
----
-
-## 7. Data to Collect
-
-For the lab report, collect at minimum:
-1. **Convergence demo** — initialize pose, drive a loop, show particles converging
-2. **Localization Hz** — `ros2 topic hz /pf/pose/odom` output while driving
-3. **Error analysis** — compare `/pf/pose/odom` to known ground truth points in the building
-4. **Parameter sweep** — replay bags with different `num_particles` and `num_beams_per_particle` values, record Hz and convergence for each
-
-Screen-record your Foxglove session for the briefing video.
+- Screen recordings of Foxglove showing convergence + laser aligning with walls
+- Screenshot of Hz monitor showing >20 Hz
+- 3+ rosbags for offline parameter tuning and report charts

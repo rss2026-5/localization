@@ -1,23 +1,39 @@
 import glob
 import os
-from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
 
 package_name = 'localization'
 
-RACECAR_SIMULATOR_PREFIX = os.path.join(os.environ["SIM_WS"], "install", "racecar_simulator")
+# Build the Cython scan_simulator_2d extension only when the .pyx source and
+# the simulator library are available (i.e. in the sim environment with SIM_WS).
+# On the real car the module is already pre-built in the Docker image.
+ext_modules = []
+pyx_path = os.path.join(package_name, "scan_simulator_2d.pyx")
 
-extensions = Extension(
-    "scan_simulator_2d",
-    [package_name + "/scan_simulator_2d.pyx"],
-    language="c++",
-    libraries=["racecar_simulator"],
-    include_dirs=[os.path.join(RACECAR_SIMULATOR_PREFIX, "include")],
-    library_dirs=[os.path.join(RACECAR_SIMULATOR_PREFIX, "lib")],
-    extra_compile_args=['-Wno-cpp', '-g', '-Wno-maybe-uninitialized'],  # Added '-Wno-maybe-uninitialized'
-)
+if os.path.isfile(pyx_path):
+    try:
+        from Cython.Build import cythonize
+
+        if "SIM_WS" in os.environ:
+            prefix = os.path.join(os.environ["SIM_WS"], "install", "racecar_simulator")
+        else:
+            prefix = os.path.join(os.path.expanduser("~"), "racecar_ws", "install", "racecar_simulator")
+
+        extensions = Extension(
+            "scan_simulator_2d",
+            [pyx_path],
+            language="c++",
+            libraries=["racecar_simulator"],
+            include_dirs=[os.path.join(prefix, "include")],
+            library_dirs=[os.path.join(prefix, "lib")],
+            extra_compile_args=['-Wno-cpp', '-g', '-Wno-maybe-uninitialized'],
+        )
+        ext_modules = cythonize(extensions, force=True, quiet=True)
+    except Exception:
+        pass
+
 setup(
-    ext_modules=cythonize(extensions, force=True, quiet=True),
+    ext_modules=ext_modules,
     name=package_name,
     version='0.0.0',
     packages=find_packages(exclude=['test']),
@@ -27,10 +43,10 @@ setup(
         ('share/' + package_name, ['package.xml', 'localization/params.yaml', 'localization/test/test_params.yaml', 'localization/real_params.yaml']),
         ('share/localization/launch',
          glob.glob(os.path.join('launch', '*launch.*')) + glob.glob(os.path.join('launch/unit_tests', '*launch.*'))),
-        ('share/localization/test_map', glob.glob(os.path.join('test_map', '*'))),
-        ('share/localization/maps', glob.glob(os.path.join('maps', '*'))),
+        ('share/localization/test_map', [f for f in glob.glob(os.path.join('test_map', '*')) if os.path.isfile(f)]),
+        ('share/localization/maps', [f for f in glob.glob(os.path.join('maps', '*')) if os.path.isfile(f)]),
     ],
-    install_requires=['setuptools', "Cython"],
+    install_requires=['setuptools'],
     zip_safe=True,
     maintainer='alanyu',
     maintainer_email='alanyu@csail.mit.edu',
@@ -44,5 +60,4 @@ setup(
             'motion_model_test = localization.test.motion_model_test:main',
         ],
     },
-
 )
