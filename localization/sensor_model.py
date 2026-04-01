@@ -133,7 +133,7 @@ class SensorModel:
         col_sums_final = np.where(col_sums_final == 0, 1.0, col_sums_final)
         self.sensor_model_table = table / col_sums_final
 
-    def evaluate(self, particles, observation):
+    def evaluate(self, particles, observation, normalize=False):
         """
         Evaluate how likely each particle is given
         the observed scan.
@@ -180,13 +180,14 @@ class SensorModel:
         # z_indices broadcast over N particles: (num_beams,) vs (N, num_beams)
         probs = self.sensor_model_table[z_indices[np.newaxis, :], d_indices]  # (N, num_beams)
 
-        # Product over beams per particle, then squash to reduce peaking
+        # Product over beams per particle (in log space to avoid underflow)
         log_probs = np.sum(np.log(probs + 1e-300), axis=1)  # (N,)
-        log_probs -= np.max(log_probs)  # Prevent underflow
+        if normalize:
+            log_probs -= np.max(log_probs)
         weights = np.exp(log_probs)
 
         # Squash: raise to power < 1 to broaden distribution
-        weights = weights ** (1.0 / 15.0)
+        weights = weights ** (1.0 / 3.0)
 
         return weights
 

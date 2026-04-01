@@ -163,7 +163,7 @@ class ParticleFilter(Node):
         observation = np.where(np.isfinite(observation), observation, z_max_m)
 
         with self.lock:
-            weights = self.sensor_model.evaluate(self.particles, observation)
+            weights = self.sensor_model.evaluate(self.particles, observation, normalize=True)
 
             if weights is None or np.sum(weights) == 0:
                 return

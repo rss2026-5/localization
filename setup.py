@@ -28,6 +28,7 @@ setup(
         ('share/localization/launch',
          glob.glob(os.path.join('launch', '*launch.*')) + glob.glob(os.path.join('launch/unit_tests', '*launch.*'))),
         ('share/localization/test_map', glob.glob(os.path.join('test_map', '*'))),
+        ('share/localization/maps', glob.glob(os.path.join('maps', '*'))),
     ],
     install_requires=['setuptools', "Cython"],
     zip_safe=True,
