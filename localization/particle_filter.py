@@ -207,28 +207,29 @@ class ParticleFilter(Node):
         odom_msg.pose.pose.position.y = mean_y
         odom_msg.pose.pose.position.z = 0.0
 
-        q = R.from_euler("xyz", (0, 0, mean_theta)).as_quat()
-        odom_msg.pose.pose.orientation.x = q[0]
-        odom_msg.pose.pose.orientation.y = q[1]
-        odom_msg.pose.pose.orientation.z = q[2]
-        odom_msg.pose.pose.orientation.w = q[3]
+        mean_q = R.from_euler("xyz", (0, 0, mean_theta)).as_quat()
+        odom_msg.pose.pose.orientation.x = mean_q[0]
+        odom_msg.pose.pose.orientation.y = mean_q[1]
+        odom_msg.pose.pose.orientation.z = mean_q[2]
+        odom_msg.pose.pose.orientation.w = mean_q[3]
 
         self.odom_pub.publish(odom_msg)
 
-        # Publish particle cloud for RViz visualization
+        # Publish particle cloud for visualization (vectorized)
         pa = PoseArray()
         pa.header.stamp = odom_msg.header.stamp
         pa.header.frame_id = "map"
         with self.lock:
-            for p in self.particles:
+            thetas = self.particles[:, 2]
+            quats = R.from_euler("z", thetas).as_quat()  # (N, 4)
+            for i in range(self.particles.shape[0]):
                 pose = Pose()
-                pose.position.x = float(p[0])
-                pose.position.y = float(p[1])
-                q = R.from_euler("xyz", (0, 0, float(p[2]))).as_quat()
-                pose.orientation.x = q[0]
-                pose.orientation.y = q[1]
-                pose.orientation.z = q[2]
-                pose.orientation.w = q[3]
+                pose.position.x = float(self.particles[i, 0])
+                pose.position.y = float(self.particles[i, 1])
+                pose.orientation.x = quats[i, 0]
+                pose.orientation.y = quats[i, 1]
+                pose.orientation.z = quats[i, 2]
+                pose.orientation.w = quats[i, 3]
                 pa.poses.append(pose)
         self.particle_pub.publish(pa)
 
@@ -241,10 +242,10 @@ class ParticleFilter(Node):
         t.transform.translation.x = mean_x
         t.transform.translation.y = mean_y
         t.transform.translation.z = 0.0
-        t.transform.rotation.x = q[0]
-        t.transform.rotation.y = q[1]
-        t.transform.rotation.z = q[2]
-        t.transform.rotation.w = q[3]
+        t.transform.rotation.x = mean_q[0]
+        t.transform.rotation.y = mean_q[1]
+        t.transform.rotation.z = mean_q[2]
+        t.transform.rotation.w = mean_q[3]
 
         self.tf_broadcaster.sendTransform(t)
 

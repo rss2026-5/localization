@@ -31,6 +31,10 @@ scp -r "${LOCAL_ROOT}/launch/" "${ROBOT}:${REMOTE_WS}/localization/launch/"
 echo "  maps/"
 scp -r "${LOCAL_ROOT}/maps/" "${ROBOT}:${REMOTE_WS}/localization/maps/"
 
+# helper scripts (record_test.sh, etc.)
+echo "  scripts/"
+scp -r "${LOCAL_ROOT}/scripts/" "${ROBOT}:${REMOTE_WS}/localization/scripts/"
+
 echo ""
 echo "==> Files deployed. Now on the robot (inside Docker):"
 echo ""
