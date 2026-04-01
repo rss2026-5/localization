@@ -6,6 +6,7 @@ from scan_simulator_2d import PyScanSimulator2D
 from tf_transformations import euler_from_quaternion
 
 from nav_msgs.msg import OccupancyGrid
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 
 import sys
 
@@ -61,11 +62,15 @@ class SensorModel:
         # Subscribe to the map
         self.map = None
         self.map_set = False
+        map_qos = QoSProfile(
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         self.map_subscriber = node.create_subscription(
             OccupancyGrid,
             self.map_topic,
             self.map_callback,
-            1)
+            map_qos)
 
     def precompute_sensor_model(self):
         """
@@ -175,10 +180,11 @@ class SensorModel:
 
         # Product over beams per particle, then squash to reduce peaking
         log_probs = np.sum(np.log(probs + 1e-300), axis=1)  # (N,)
+        log_probs -= np.max(log_probs)  # Prevent underflow
         weights = np.exp(log_probs)
 
         # Squash: raise to power < 1 to broaden distribution
-        weights = weights ** (1.0 / 3.0)
+        weights = weights ** (1.0 / 15.0)
 
         return weights
 
@@ -211,4 +217,4 @@ class SensorModel:
         # Make the map set
         self.map_set = True
 
-        print("Map initialized")
+        print("Map initialized", flush=True)

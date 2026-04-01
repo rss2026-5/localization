@@ -173,10 +173,10 @@ class ParticleFilter(Node):
             indices = np.random.choice(self.num_particles, self.num_particles, p=weights)
             self.particles = self.particles[indices].copy()
 
-            # Add small post-resample noise to maintain diversity
-            self.particles[:, 0] += np.random.normal(0, 0.02, self.num_particles)
-            self.particles[:, 1] += np.random.normal(0, 0.02, self.num_particles)
-            self.particles[:, 2] += np.random.normal(0, 0.01, self.num_particles)
+            # Add post-resample noise to maintain diversity
+            self.particles[:, 0] += np.random.normal(0, 0.2, self.num_particles)
+            self.particles[:, 1] += np.random.normal(0, 0.2, self.num_particles)
+            self.particles[:, 2] += np.random.normal(0, 0.05, self.num_particles)
 
         self.publish_pose_estimate()
 
