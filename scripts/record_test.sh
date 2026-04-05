@@ -9,22 +9,15 @@
 #   ./scripts/record_test.sh              # default bag name with timestamp
 #   ./scripts/record_test.sh my_run_name  # custom name
 #
-# What gets recorded:
-#   /vesc/odom          - raw odometry (motion model input)
-#   /scan               - raw lidar scans (sensor model input)
-#   /pf/pose/odom       - estimated pose from particle filter
-#   /pf/particles       - particle cloud for visualization
-#   /map                - occupancy grid (for replay without map server)
-#   /initialpose        - pose initializations (to replay the same init)
-#   /tf                 - all transforms including map->base_link
-#
-# Stop recording with Ctrl-C.
-# Replay later with: ros2 bag play <bag_dir>
+# Bags are saved inside the workspace so they persist on the host.
+# Copy them to your laptop with:
+#   scp -r racecar@192.168.1.102:~/racecar_ws/src/localization/bag_files/ ./bag_files/
 
 set -euo pipefail
 
 NAME="${1:-test_run_$(date +%Y%m%d_%H%M%S)}"
-BAG_DIR="$HOME/rosbags/${NAME}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BAG_DIR="${SCRIPT_DIR}/../bag_files/${NAME}"
 
 echo "==> Recording to ${BAG_DIR}"
 echo "    Press Ctrl-C to stop."

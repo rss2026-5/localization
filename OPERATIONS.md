@@ -112,7 +112,7 @@ Leave the particle filter running between runs.
 
 ```bash
 cd ~/Documents/GitHub/localization
-scp -r racecar@192.168.1.102:~/rosbags/ ./bag_files/
+scp -r racecar@192.168.1.102:~/racecar_ws/src/localization/bag_files/ ./bag_files/
 ```
 
 ---

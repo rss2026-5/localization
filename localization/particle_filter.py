@@ -200,7 +200,7 @@ class ParticleFilter(Node):
         # Build Odometry message
         odom_msg = Odometry()
         odom_msg.header.stamp = self.get_clock().now().to_msg()
-        odom_msg.header.frame_id = "/map"
+        odom_msg.header.frame_id = "map"
         odom_msg.child_frame_id = self.particle_filter_frame
 
         odom_msg.pose.pose.position.x = mean_x
