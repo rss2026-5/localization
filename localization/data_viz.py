@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -9,11 +11,11 @@ def extract_data(bag_path, topic_name):
     posts = []
     # Use the Enum directly instead of the string 'ros2'
     typestore = get_typestore(Stores.ROS2_HUMBLE)
-    
+
     # Pass the typestore to the reader
     with AnyReader([Path(bag_path)], default_typestore=typestore) as reader:
         connections = [c for c in reader.connections if c.topic == topic_name]
-        
+
         if not connections:
             print(f"Warning: Topic {topic_name} not found in bag!")
             return pd.DataFrame()
@@ -21,25 +23,37 @@ def extract_data(bag_path, topic_name):
         for conn, timestamp, rawdata in reader.messages(connections=connections):
             msg = reader.deserialize(rawdata, conn.msgtype)
 
-            # --- SPECIAL HANDLING FOR TF ---
-            if topic_name == '/tf':
-                for transform in msg.transforms:
-                    # Filter for the specific frame you want (e.g., base_link relative to map)
-                    if transform.child_frame_id == 'base_link': 
-                        posts.append({
-                            'time': timestamp / 1e9,
-                            'x': transform.transform.translation.x,
-                            'y': transform.transform.translation.y
-                        })
             # --- HANDLING FOR ODOMETRY ---
-            else:
-                posts.append({
-                    'time': timestamp / 1e9,
-                    'x': msg.pose.pose.position.x,
-                    'y': msg.pose.pose.position.y
-                })
+            posts.append({
+                'time': timestamp / 1e9,
+                'x': msg.pose.pose.position.x,
+                'y': msg.pose.pose.position.y
+            })
 
     return pd.DataFrame(posts)
+
+
+def extract_tf_frame(bag_path, parent_frame, child_frame):
+    """Extract a specific transform from /tf.
+    Returns a DataFrame with columns: time, x, y, yaw.
+    """
+    records = []
+    typestore = get_typestore(Stores.ROS2_HUMBLE)
+    with AnyReader([Path(bag_path)], default_typestore=typestore) as reader:
+        connections = [c for c in reader.connections if c.topic == '/tf']
+        for conn, timestamp, rawdata in reader.messages(connections=connections):
+            msg = reader.deserialize(rawdata, conn.msgtype)
+            for tf in msg.transforms:
+                if tf.header.frame_id == parent_frame and tf.child_frame_id == child_frame:
+                    q = tf.transform.rotation
+                    yaw = np.arctan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y**2 + q.z**2))
+                    records.append({
+                        'time': timestamp / 1e9,
+                        'x': tf.transform.translation.x,
+                        'y': tf.transform.translation.y,
+                        'yaw': yaw
+                    })
+    return pd.DataFrame(records)
 
 def extract_convergence_data(bag_path, topic_name):
     data = []
@@ -140,7 +154,10 @@ def extract_innovation(bag_path, topic_name):
 
 
 # -- file selection ---
-bag_folder = 'bag_files/localization_run_3' 
+# Set sim=True for simulation bags (/odom and /pf/pose/odom both in map frame)
+# Set sim=False for real-car bags (uses /tf map->base_link vs odom->base_link)
+bag_folder = 'bag_files/localization_run_3'
+sim = False
 
 # # --- convergence rate plot ---
 # df_conv = extract_convergence_data(bag_folder, '/pf/pose/odom')
@@ -183,40 +200,98 @@ bag_folder = 'bag_files/localization_run_3'
 # plt.legend()
 # plt.show()
 
-# 1. Load both datasets
-df_pf = extract_odom(bag_folder, '/pf/pose/odom')
-df_vesc = extract_odom(bag_folder, '/vesc/odom')
+if sim:
+    # --- SIMULATION ---
+    # Both /odom and /pf/pose/odom are already in the map frame.
+    # /odom = noisy simulator odometry (dead reckoning baseline)
+    # /pf/pose/odom = PF estimate
+    df_pf_data = extract_data(bag_folder, '/pf/pose/odom')
+    df_odom_data = extract_data(bag_folder, '/odom')
 
-# 2. Synchronize VESC data to PF timestamps
-# We interpolate VESC (x,y) to match the times when the PF published
-vesc_x_sync = np.interp(df_pf['time'], df_vesc['time'], df_vesc['x'])
-vesc_y_sync = np.interp(df_pf['time'], df_vesc['time'], df_vesc['y'])
+    pf_times = df_pf_data['time'].values
+    odom_x_sync = np.interp(pf_times, df_odom_data['time'].values, df_odom_data['x'].values)
+    odom_y_sync = np.interp(pf_times, df_odom_data['time'].values, df_odom_data['y'].values)
 
-# 3. Calculate Euclidean Distance (Positional Error)
-# Note: For a true 'Cross Track' error relative to a path, 
-# you'd use a projection, but Euclidean distance is the lab standard for comparing two odoms.
-cte = np.sqrt((df_pf['x'] - vesc_x_sync)**2 + (df_pf['y'] - vesc_y_sync)**2)
+    pf_x, pf_y = df_pf_data['x'].values, df_pf_data['y'].values
+    odom_label = 'Noisy Odometry (/odom)'
+    pf_label = 'PF Estimate (/pf/pose/odom)'
+    title_suffix = 'Simulation'
+else:
+    # --- REAL CAR ---
+    df_pf_tf = extract_tf_frame(bag_folder, 'map', 'base_link')
+    df_odom_tf = extract_tf_frame(bag_folder, 'odom', 'base_link')
 
-# 4. Plotting
+    t0_map = df_pf_tf.iloc[0]
+    t0_odom = df_odom_tf.iloc[0]
+
+    pf_times = df_pf_tf['time'].values
+    odom_x_t = np.interp(pf_times, df_odom_tf['time'].values, df_odom_tf['x'].values)
+    odom_y_t = np.interp(pf_times, df_odom_tf['time'].values, df_odom_tf['y'].values)
+
+    # Frozen rotation (t=0 only)
+    delta_yaw_0 = t0_map['yaw'] - t0_odom['yaw']
+    dx0 = odom_x_t - t0_odom['x']
+    dy0 = odom_y_t - t0_odom['y']
+    odom_x_frozen = np.cos(delta_yaw_0)*dx0 - np.sin(delta_yaw_0)*dy0 + t0_map['x']
+    odom_y_frozen = np.sin(delta_yaw_0)*dx0 + np.cos(delta_yaw_0)*dy0 + t0_map['y']
+
+    # Continuous rotation: integrate incremental VESC steps using PF heading at each step.
+    # At each timestep we rotate the small displacement (dx, dy) by the current PF yaw,
+    # then accumulate. This avoids the wild swings from rotating the full displacement vector.
+    pf_yaw_t = np.interp(pf_times, df_pf_tf['time'].values, df_pf_tf['yaw'].values)
+    odom_yaw_t = np.interp(pf_times, df_odom_tf['time'].values, df_odom_tf['yaw'].values)
+    delta_yaw_t = pf_yaw_t - odom_yaw_t
+
+    odom_x_cont = np.zeros(len(pf_times))
+    odom_y_cont = np.zeros(len(pf_times))
+    odom_x_cont[0] = t0_map['x']
+    odom_y_cont[0] = t0_map['y']
+    for i in range(1, len(pf_times)):
+        ddx = odom_x_t[i] - odom_x_t[i-1]
+        ddy = odom_y_t[i] - odom_y_t[i-1]
+        c, s = np.cos(delta_yaw_t[i]), np.sin(delta_yaw_t[i])
+        odom_x_cont[i] = odom_x_cont[i-1] + c*ddx - s*ddy
+        odom_y_cont[i] = odom_y_cont[i-1] + s*ddx + c*ddy
+
+    odom_x_sync = odom_x_frozen  # used for single-series plots below
+    odom_y_sync = odom_y_frozen
+    pf_x, pf_y = df_pf_tf['x'].values, df_pf_tf['y'].values
+    title_suffix = 'Real Car'
+
+# --- Euclidean divergence ---
+pos_error_frozen = np.sqrt((pf_x - odom_x_frozen)**2 + (pf_y - odom_y_frozen)**2)
+pos_error_cont   = np.sqrt((pf_x - odom_x_cont)**2   + (pf_y - odom_y_cont)**2)
+
+# Divergence over time — continuous rotation only
 plt.figure(figsize=(12, 6))
-time_axis = df_pf['time'] - df_pf['time'].iloc[0]
-plt.plot(time_axis, cte, label='CTE (PF vs VESC)', color='tab:orange', lw=1.5)
-
-plt.axhline(y=np.mean(cte), color='black', linestyle='--', label=f'Mean Error: {np.mean(cte):.3f}m')
-
-plt.title('Cross Track Error: PF Estimate vs. Raw VESC Odometry')
+time_axis = pf_times - pf_times[0]
+plt.plot(time_axis, pos_error_cont, color='tab:orange', lw=1.5)
+plt.axhline(y=np.mean(pos_error_cont), color='black', linestyle='--',
+            label=f'Mean Error: {np.mean(pos_error_cont):.3f}m')
+plt.title(f'PF vs Dead Reckoning Divergence — {title_suffix}')
 plt.xlabel('Time (seconds)')
-plt.ylabel('Distance Error (meters)')
-plt.legend()
+plt.ylabel('Euclidean Distance (meters)')
+plt.legend(loc='upper right')
+plt.annotate(
+    'Euclidean distance between\nPF Estimate (A) and\nVESC Odometry (B) over time',
+    xy=(0.98, 0.92), xycoords='axes fraction',
+    ha='right', va='top', fontsize=9,
+    bbox=dict(boxstyle='round,pad=0.4', facecolor='white', edgecolor='gray', alpha=0.8)
+)
 plt.grid(True, alpha=0.3)
+plt.savefig('pos_divergence.png', dpi=150, bbox_inches='tight')
 
-# XY trajectory plot
+# XY trajectory — PF vs continuous rotation only
 plt.figure(figsize=(8, 8))
-plt.plot(abs(df_vesc['x']), abs(df_vesc['y']), label='Raw VESC (Drifting)', alpha=0.5)
-plt.plot(df_pf['x'], df_pf['y'], label='PF Filtered (Corrected)', color='red')
+plt.plot(odom_x_cont, odom_y_cont, label='(B) VESC Odometry', alpha=0.7, color='tab:blue', lw=1.5)
+plt.plot(pf_x, pf_y,               label='(A) PF Estimate',           color='red', lw=1.5)
 plt.axis('equal')
-plt.legend()
-plt.title('Spatial Comparison of Trajectories')
+plt.legend(loc='upper right')
+plt.title(f'Trajectory Comparison — {title_suffix}')
+plt.xlabel('X (m)')
+plt.ylabel('Y (m)')
+plt.grid(True, alpha=0.3)
+plt.savefig('trajectory_comparison.png', dpi=150, bbox_inches='tight')
 
 plt.show()
 
