@@ -4,7 +4,7 @@
 
 ---
 
-## Deploy (from your laptop)
+## 1. Deploy (from your laptop, on any wifi)
 
 ```bash
 cd ~/Documents/GitHub/localization
@@ -13,7 +13,19 @@ cd ~/Documents/GitHub/localization
 
 ---
 
-## Build (on the car, inside Docker)
+## 2. Switch to car wifi, then open 5 tabs
+
+### Tab 1 — Docker (start container)
+
+```bash
+ssh racecar@192.168.1.102
+sudo docker rm -f racecar 2>/dev/null
+cd && ./run_rostorch.sh
+```
+
+Password: `racecar@mit`. Leave this running.
+
+### Tab 2 — Build + teleop check
 
 ```bash
 ssh racecar@192.168.1.102
@@ -22,27 +34,17 @@ export SIM_WS=/root/sim_ws
 cd ~/racecar_ws && colcon build --packages-select localization --symlink-install && source install/setup.bash
 ```
 
-Password: `racecar@mit`
+Wait for `Finished <<< localization`. Then verify teleop: hold **LB + left stick** = car moves.
 
-If `connect` fails, start Docker first: `cd && ./run_rostorch.sh` then `connect` in a new tab.
-
-Wait for `Finished <<< localization`.
-
----
-
-## Run
-
-Open **4 terminals** on your laptop.
-
-### Tab 1 — VNC port forward
+### Tab 3 — VNC tunnel
 
 ```bash
 ssh -L 6081:localhost:6081 racecar@192.168.1.102
 ```
 
-Keep this open. Open your browser to: `http://localhost:6081/vnc.html?resize=remote`
+Open browser: `http://localhost:6081/vnc.html?resize=remote`
 
-### Tab 2 — Particle filter
+### Tab 4 — Particle filter
 
 ```bash
 ssh racecar@192.168.1.102
@@ -53,62 +55,71 @@ ros2 launch localization localize_real.launch.xml
 
 Wait for `=============+READY+=============` and `Map initialized`.
 
-### Tab 3 — RViz
+### Tab 5 — RViz
 
 ```bash
 ssh racecar@192.168.1.102
 connect
+export DISPLAY=:10
 source ~/racecar_ws/install/setup.bash
 rviz2 -d $(ros2 pkg prefix localization)/share/localization/rviz_config.rviz
 ```
 
-If that errors, run `rviz2` and manually add `/map`, `/scan`, `/pf/particles`. Set Fixed Frame to `map`.
+The map should appear immediately (top-down view, Stata basement floor plan).
+If it doesn't load the config, run `rviz2` bare and add `/map`, `/scan`, `/pf/particles` by topic. Set Fixed Frame to `map`.
 
-### Tab 4 — Rosbag + Hz
+---
+
+## 3. Test runs
+
+For each run, open a **new terminal**:
 
 ```bash
 ssh racecar@192.168.1.102
 connect
 source ~/racecar_ws/install/setup.bash
 cd ~/racecar_ws/src/localization
+```
+
+### Run 1
+
+```bash
 ./scripts/record_test.sh convergence_run_1
 ```
 
-Teleop should already be running. Verify: hold **LB** + move left stick = car responds.
-If teleop isn't running: `connect` in a new tab, then `teleop`.
+1. Start **screen recording** on laptop (QuickTime/OBS on VNC window)
+2. In RViz: **2D Pose Estimate** → click where car is → drag facing direction
+3. Hold **RB**, drive slowly 30–60 sec, watch particles converge + laser align with walls
+4. Stop screen recording, save it
+5. **Ctrl-C** in rosbag terminal
 
----
-
-## Test
-
-1. **Start screen recording** (QuickTime or OBS on the VNC browser window)
-2. In RViz, click **2D Pose Estimate** in the toolbar, click and drag on the map where the car is
-3. Hold **RB** and drive slowly
-4. Watch particles converge. Red laser scan should align with walls
-5. Drive a loop back to start (~30-60 seconds)
-6. **Ctrl-C** in Tab 4 to stop recording
-7. Stop screen recording
-
-Check Hz (in Tab 4 after stopping the bag):
+**Hz check** (once, after Run 1):
 
 ```bash
 ros2 topic hz /pf/pose/odom
 ```
 
-Should read **>20 Hz**. Screenshot it.
+Wait 5 sec, **screenshot it** (should show >20 Hz), Ctrl-C.
 
-For more runs:
+### Run 2
 
 ```bash
 ./scripts/record_test.sh convergence_run_2
+```
+
+New screen recording. Different start location, sharp turns.
+
+### Run 3
+
+```bash
 ./scripts/record_test.sh convergence_run_3
 ```
 
-Leave the particle filter running between runs.
+New screen recording. Longer drive (~90 sec), varied speed. Best briefing video.
 
 ---
 
-## Copy Bags to Laptop
+## 4. Copy bags to laptop
 
 ```bash
 cd ~/Documents/GitHub/localization
@@ -117,8 +128,8 @@ scp -r racecar@192.168.1.102:~/racecar_ws/src/localization/bag_files/ ./bag_file
 
 ---
 
-## What to Walk Away With
+## What you walk away with
 
-- Screen recordings of RViz showing convergence + laser aligning with walls
-- Screenshot of Hz monitor showing >20 Hz
-- 3+ rosbags for offline parameter tuning and report charts
+- 3 screen recordings (particles converging + laser aligning with walls)
+- 1 Hz screenshot (>20 Hz)
+- 3 rosbags in `bag_files/`

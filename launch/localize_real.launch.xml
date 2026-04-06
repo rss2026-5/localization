@@ -9,6 +9,10 @@
         <param name="node_names" value="['map_server']"/>
     </node>
 
+    <!-- Static TF: base_link → laser (lidar mount offset on racecar) -->
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="base_link_to_laser"
+          args="0.265 0.0 0.0 0 0 0 base_link laser"/>
+
     <!-- Particle filter: uses real car parameters -->
     <node pkg="localization" exec="particle_filter" name="particle_filter" output="screen">
         <param from="$(find-pkg-share localization)/real_params.yaml"/>

@@ -90,7 +90,21 @@ class ParticleFilter(Node):
         self.last_odom_time = None
         self.lock = threading.Lock()
 
+        self.pf_frame_clean = self.particle_filter_frame.lstrip('/')
+        self.create_timer(0.05, self._ensure_tf)
+
         self.get_logger().info("=============+READY+=============")
+
+    def _ensure_tf(self):
+        """Publish map→base_link TF at 20 Hz so the map frame always exists in RViz."""
+        if self.initialized:
+            return
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = "map"
+        t.child_frame_id = self.pf_frame_clean
+        t.transform.rotation.w = 1.0
+        self.tf_broadcaster.sendTransform(t)
 
     # ---------------------------------------------------------------
     # Initialization
@@ -237,7 +251,7 @@ class ParticleFilter(Node):
         t = TransformStamped()
         t.header.stamp = odom_msg.header.stamp
         t.header.frame_id = "map"
-        t.child_frame_id = self.particle_filter_frame.lstrip('/')
+        t.child_frame_id = self.pf_frame_clean
 
         t.transform.translation.x = mean_x
         t.transform.translation.y = mean_y
